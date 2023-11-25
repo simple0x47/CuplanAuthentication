@@ -72,7 +72,7 @@ jobs:
           dotnet test CuplanAuthentication.sln
       - name: Build & package
         run: |
-          cd Api
+          cd Authentication
           dotnet publish Authentication.csproj -c Release -o app
           zip -r app.zip ./app
       - name: Upload binaries as artifact
