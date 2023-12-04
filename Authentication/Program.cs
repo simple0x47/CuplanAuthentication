@@ -1,12 +1,34 @@
 using System.Security.Claims;
+using Core;
+using Core.Config;
 using Core.Secrets;
-using Cuplan.Authentication;
 using Cuplan.Authentication.Models;
 using Cuplan.Authentication.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<ISecretsManager, BitwardenSecretsManager>();
+
+ServiceProvider provider = builder.Services.BuildServiceProvider();
+string? accessToken = (provider.GetService(typeof(ISecretsManager)) as ISecretsManager).Get(
+    builder.Configuration["ConfigProvider:AccessTokenSecret"]);
+HttpClientWrapper httpClientWrapper = new();
+httpClientWrapper.AuthorizationBearerToken = accessToken!;
+
+IConfigDownloader configDownloader = new ServerConfigDownloader(httpClientWrapper);
+ConfigManager configManager = new(configDownloader);
+
+Result<IConfigProvider, Error<string>> configResult = await configManager.Download(
+    builder.Configuration["ConfigProvider:Url"]!,
+    builder.Configuration["ConfigProvider:Component"]!);
+
+if (!configResult.IsOk)
+    throw new InvalidOperationException(
+        $"Failed to get the configuration provider: {configResult.UnwrapErr().Message}");
+
+IConfigProvider configProvider = configResult.Unwrap();
+builder.Services.AddSingleton(configProvider);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -14,8 +36,8 @@ builder.Services.AddAuthentication(options =>
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 }).AddJwtBearer(options =>
 {
-    options.Authority = builder.Configuration["IdentityProvider:Authority"];
-    options.Audience = builder.Configuration["IdentityProvider:Audience"];
+    options.Authority = configProvider.Get<string>("application.yaml|IdentityProvider:Authority").Result.Unwrap();
+    options.Audience = configProvider.Get<string>("application.yaml|IdentityProvider:Audience").Result.Unwrap();
     options.TokenValidationParameters = new TokenValidationParameters
     {
         NameClaimType = ClaimTypes.NameIdentifier
@@ -27,7 +49,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("Frontend",
         policy =>
         {
-            policy.WithOrigins(builder.Configuration.GetSection("Cors").GetSection("Origins").Get<string[]>())
+            policy.WithOrigins(configProvider.Get<string[]>("application.yaml|Cors:Origins").Result.Unwrap())
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials();
@@ -39,10 +61,6 @@ builder.Services.AddCors(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddControllers().AddNewtonsoftJson();
-
-// Other dependencies
-builder.Services.AddSingleton<ISecretsManager, BitwardenSecretsManager>();
-builder.Services.AddSingleton<ConfigurationReader>();
 
 // Services
 builder.Services.AddSingleton<IAuthProvider, Auth0Provider>();

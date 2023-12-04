@@ -1,5 +1,6 @@
 using System.Net;
 using Core;
+using Core.Config;
 using Core.Secrets;
 using Cuplan.Authentication.Models;
 using Cuplan.Authentication.ServiceModels;
@@ -34,33 +35,44 @@ public class Auth0Provider : IAuthProvider
 
     private readonly TimeSpan _signUpTimeout;
 
-    public Auth0Provider(ConfigurationReader config, ISecretsManager secretsManager, ILogger<Auth0Provider> logger)
+    public Auth0Provider(IConfigProvider configProvider, ISecretsManager secretsManager, ILogger<Auth0Provider> logger)
     {
         // Expects the identity provider url to finish with '/'.
-        _identityProviderUrl = config.GetStringOrThrowException("IdentityProvider:Authority");
-        _identityProviderAudience = config.GetStringOrThrowException("IdentityProvider:Audience");
+        _identityProviderUrl =
+            configProvider.Get<string>("application.yaml|IdentityProvider:Authority").Result.Unwrap();
+        _identityProviderAudience =
+            configProvider.Get<string>("application.yaml|IdentityProvider:Audience").Result.Unwrap();
 
         if (_identityProviderUrl is null) throw new NullReferenceException("'_identityProviderUrl' is null.");
 
-        _clientId = secretsManager.Get(config.GetStringOrThrowException("Auth0:ClientIdSecret"));
+        _clientId = secretsManager.Get(configProvider.Get<string>("application.yaml|Auth0:ClientIdSecret").Result
+            .Unwrap());
 
         if (_clientId is null) throw new NullReferenceException("'_clientId' is null.");
 
-        _clientSecret = secretsManager.Get(config.GetStringOrThrowException("Auth0:ClientSecretSecret"));
+        _clientSecret =
+            secretsManager.Get(configProvider.Get<string>("application.yaml|Auth0:ClientSecretSecret").Result.Unwrap());
 
         if (_clientSecret is null) throw new NullReferenceException("'_clientSecret' is null.");
 
-        _database = config.GetStringOrThrowException("Auth0:Database");
+        _database = configProvider.Get<string>("application.yaml|Auth0:Database").Result.Unwrap();
 
         if (_database is null) throw new NullReferenceException("'_database' is null.");
 
         _client = new HttpClient();
 
-        _signUpTimeout = TimeSpan.FromSeconds(config.GetDoubleOrDefault("AuthProvider:SignUpTimeout", 15));
-        _loginTimeout = TimeSpan.FromSeconds(config.GetDoubleOrDefault("AuthProvider:LoginTimeout", 15));
+        _signUpTimeout =
+            TimeSpan.FromSeconds(configProvider.Get<double>("application.yaml|AuthProvider:SignUpTimeout").Result
+                .Unwrap());
+        _loginTimeout =
+            TimeSpan.FromSeconds(configProvider.Get<double>("application.yaml|AuthProvider:LoginTimeout").Result
+                .Unwrap());
         _forgotPasswordTimeout =
-            TimeSpan.FromSeconds(config.GetDoubleOrDefault("AuthProvider:ForgotPasswordTimeout", 15));
-        _refreshTokenTimeout = TimeSpan.FromSeconds(config.GetDoubleOrDefault("AuthProvider:RefreshTokenTimeout", 15));
+            TimeSpan.FromSeconds(configProvider.Get<double>("application.yaml|AuthProvider:ForgotPasswordTimeout")
+                .Result.Unwrap());
+        _refreshTokenTimeout =
+            TimeSpan.FromSeconds(configProvider.Get<double>("application.yaml|AuthProvider:RefreshTokenTimeout").Result
+                .Unwrap());
 
         _logger = logger;
     }
@@ -69,7 +81,7 @@ public class Auth0Provider : IAuthProvider
     {
         try
         {
-            Authentication.ServiceModels.SignUpPayload payload = new();
+            ServiceModels.SignUpPayload payload = new();
             payload.client_id = _clientId;
             payload.email = signUp.Email;
             payload.password = signUp.Password;
@@ -108,7 +120,7 @@ public class Auth0Provider : IAuthProvider
     {
         try
         {
-            Authentication.ServiceModels.LoginPayload payload = new()
+            ServiceModels.LoginPayload payload = new()
             {
                 audience = _identityProviderAudience,
                 client_id = _clientId,
